@@ -303,6 +303,12 @@ zm_collectd_pull_actor (zsock_t *pipe, void *args)
     if (!self)
         return;          //  Interrupted
 
+    if (args) {
+        char *foo = (char*) args;
+        zstr_free (&self->name);
+        self->name = strdup (foo);
+    }
+
     //  Signal actor successfully initiated
     zsock_signal (self->pipe, 0);
 
@@ -340,7 +346,7 @@ zm_collectd_pull_actor_test (bool verbose)
 
     zstr_sendx (malamute, "BIND", "inproc://malamute-unit-test", NULL);
 
-    zactor_t *self = zactor_new (zm_collectd_pull_actor, NULL);
+    zactor_t *self = zactor_new (zm_collectd_pull_actor, "collectd-unit-test");
     assert (self);
 
     if (verbose)
