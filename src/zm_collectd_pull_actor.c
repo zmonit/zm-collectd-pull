@@ -189,7 +189,8 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         r = lcc_identifier_to_string (self->conn, id, sizeof (id), ret_ident + i);
         assert (r == 0);
 
-        zsys_info ("i=%zu, id=%s", i, id);
+        if (seldf->verbose)
+            zsys_info ("i=%zu, id=%s", i, id);
 
 
         size_t ret_values_num = 0;
@@ -198,8 +199,35 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         r = lcc_getval (self->conn, ret_ident + i, &ret_values_num, &ret_values, &ret_values_names);
         assert (r == 0);
 
-        for (size_t j = 0; j < ret_values_num; j++)
-            zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+        char *sep = strchr (id, '/');
+        char *device = "";
+        char *type = id;
+        if (sep) {
+            type = sep + 1;
+            sep = '\0';
+            device = id;
+        }
+        zm_proto_set_id (self->msg, ZM_PROTO_METRIC);
+        zm_proto_set_device (self->msg, device);
+        zm_proto_set_time (self->msg, zclock_time ());
+        zm_proto_set_ttl (self->msg, 5000);
+
+        zm_proto_set_type (self->msg, type);
+        for (size_t j = 0; j < ret_values_num; j++) {
+            if (self->verbose)
+                zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+            char *value = zsys_sprintf ("%e", ret_values [j]);
+            zm_proto_set_value (self->msg, value);
+            zstr_free (&value);
+            break;
+        }
+
+        zm_proto_set_unit (self->msg, "");
+
+        zm_proto_send_mlm (self->msg, self->client, "subject");
+
+        if (self->verbose)
+            zm_proto_print (self->msg);
 
         RET_VALUES_DESTROY;
     }
