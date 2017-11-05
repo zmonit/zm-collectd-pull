@@ -239,7 +239,7 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         }
 
         if (self->verbose)
-            zsys_info ("i=%zu, id=%s", i, id);
+            zsys_info ("zm_collectd_pull (%s): i=%zu, id=%s", self->name, i, id);
 
 
         size_t ret_values_num = 0;
@@ -272,7 +272,11 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         zm_proto_set_type (self->msg, type);
         for (size_t j = 0; j < ret_values_num; j++) {
             if (self->verbose)
-                zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+                zsys_info ("zm_collectd_pull (%s): \tj=%zu, %s=%e\n",
+                        self->name,
+                        j,
+                        ret_values_names[j],
+                        ret_values[j]);
             char *value = zsys_sprintf ("%e", ret_values [j]);
             zm_proto_set_value (self->msg, value);
             zstr_free (&value);
@@ -282,9 +286,6 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         zm_proto_set_unit (self->msg, "");
 
         zm_proto_send_mlm (self->msg, self->client, "subject");
-
-        if (self->verbose)
-            zm_proto_print (self->msg);
 
         RET_VALUES_DESTROY;
     }
