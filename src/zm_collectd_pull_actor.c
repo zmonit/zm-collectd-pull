@@ -96,12 +96,28 @@ zm_collectd_pull_actor_start (zm_collectd_pull_actor_t *self)
 
     //  TODO: Add startup actions
     int r = lcc_connect (self->collectd_socket, &self->conn);
-    assert (r == 0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to connect to collectd: %s",
+                self->name,
+                lcc_strerror (self->conn));
+        self->terminated = true;
+        return -1;
+    }
 
     r = mlm_client_connect (self->client, self->endpoint, 5000, self->name);
-    assert (r == 0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to connect to malamute",
+                self->name);
+        self->terminated = true;
+        return -1;
+    }
     r = mlm_client_set_producer (self->client, ZM_PROTO_METRIC_STREAM);
-    assert (r ==0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to set client as a producer",
+                self->name);
+        self->terminated = true;
+        return -1;
+    }
 
     return 0;
 }
@@ -204,12 +220,23 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
   } while (0)
 
     r = lcc_listval (self->conn, &ret_ident, &ret_ident_num);
-    assert (r == 0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to list values from collectd: %s",
+                self->name,
+                lcc_strerror (self->conn));
+        return;
+    }
 
     for (size_t i = 0; i < ret_ident_num; i++) {
         char id[1024];
         r = lcc_identifier_to_string (self->conn, id, sizeof (id), ret_ident + i);
-        assert (r == 0);
+        if (r != 0) {
+            zsys_error ("zm_collectd_pull (%s): Failed to convert collectd identifier to string: %s",
+                    self->name,
+                    lcc_strerror (self->conn));
+            RET_IDENT_DESTROY;
+            return;
+        }
 
         if (self->verbose)
             zsys_info ("i=%zu, id=%s", i, id);
@@ -219,7 +246,15 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         gauge_t *ret_values = NULL;
         char **ret_values_names = NULL;
         r = lcc_getval (self->conn, ret_ident + i, &ret_values_num, &ret_values, &ret_values_names);
-        assert (r == 0);
+        if (r != 0) {
+            zsys_error ("zm_collectd_pull (%s): Failed to get valued for %s: %s",
+                    self->name,
+                    id,
+                    lcc_strerror (self->conn));
+            RET_IDENT_DESTROY;
+            RET_VALUES_DESTROY;
+            return;
+        }
 
         char *sep = strchr (id, '/');
         char *device = "";
