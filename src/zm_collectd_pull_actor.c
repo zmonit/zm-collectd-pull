@@ -26,7 +26,13 @@ struct _zm_collectd_pull_actor_t {
     zpoller_t *poller;          //  Socket poller
     bool terminated;            //  Did caller ask us to quit?
     bool verbose;               //  Verbose logging enabled?
-    //  TODO: Declare properties
+    //  Declare properties
+    char *collectd_socket;      //  Name of collectd unix socket
+    zm_proto_t *msg;            //  Msg to manipulate with
+    lcc_connection_t *conn;     //  Connection to collectd
+    char *name;                 //  Actor name
+    char *endpoint;             //  Malamute endpoint
+    mlm_client_t *client;       //  Malamute client
 };
 
 
@@ -43,7 +49,12 @@ zm_collectd_pull_actor_new (zsock_t *pipe, void *args)
     self->terminated = false;
     self->poller = zpoller_new (self->pipe, NULL);
 
-    //  TODO: Initialize properties
+    //  Initialize properties
+    self->collectd_socket = strdup ("/var/run/collectd-unixsock");
+    self->msg = zm_proto_new ();
+    self->name = strdup ("zm_collectd_pull");
+    self->endpoint = strdup ("inproc://malamute");
+    self->client = mlm_client_new ();
 
     return self;
 }
@@ -59,7 +70,13 @@ zm_collectd_pull_actor_destroy (zm_collectd_pull_actor_t **self_p)
     if (*self_p) {
         zm_collectd_pull_actor_t *self = *self_p;
 
-        //  TODO: Free actor properties
+        //  Free actor properties
+        LCC_DESTROY (self->conn);
+        zstr_free (&self->collectd_socket);
+        zm_proto_destroy (&self->msg);
+        zstr_free (&self->name);
+        zstr_free (&self->endpoint);
+        mlm_client_destroy (&self->client);
 
         //  Free object itself
         zpoller_destroy (&self->poller);
@@ -78,6 +95,13 @@ zm_collectd_pull_actor_start (zm_collectd_pull_actor_t *self)
     assert (self);
 
     //  TODO: Add startup actions
+    int r = lcc_connect (self->collectd_socket, &self->conn);
+    assert (r == 0);
+
+    r = mlm_client_connect (self->client, self->endpoint, 5000, self->name);
+    assert (r == 0);
+    r = mlm_client_set_producer (self->client, ZM_PROTO_METRIC_STREAM);
+    assert (r ==0);
 
     return 0;
 }
@@ -124,16 +148,46 @@ zm_collectd_pull_actor_recv_api (zm_collectd_pull_actor_t *self)
         zsys_error ("invalid command '%s'", command);
         assert (false);
     }
+    zm_collectd_pull_actor_stop (self);
     zstr_free (&command);
     zmsg_destroy (&request);
 }
 
+static void
+zm_collectd_pull (zm_collectd_pull_actor_t *self)
+{
+    assert (self);
+    lcc_identifier_t *ret_ident;
+    size_t ret_ident_num;
+    int r;
+
+    r = lcc_listval (self->conn, &ret_ident, &ret_ident_num);
+    assert (r == 0);
+
+    for (size_t i = 0; i < ret_ident_num; i++) {
+        char id[1024];
+        r = lcc_identifier_to_string (self->conn, id, sizeof (id), ret_ident + i);
+        assert (r == 0);
+
+        zsys_info ("i=%zu, id=%s", i, id);
+
+
+        size_t ret_values_num = 0;
+        gauge_t *ret_values = NULL;
+        char **ret_values_names = NULL;
+        r = lcc_getval (self->conn, ret_ident + i, &ret_values_num, &ret_values, &ret_values_names);
+        assert (r == 0);
+
+        for (size_t j = 0; j < ret_values_num; j++)
+            zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+    }
+}
 
 //  --------------------------------------------------------------------------
 //  This is the actor which runs in its own thread.
 
 void
-zm_collectd_pull_actor_actor (zsock_t *pipe, void *args)
+zm_collectd_pull_actor (zsock_t *pipe, void *args)
 {
     zm_collectd_pull_actor_t * self = zm_collectd_pull_actor_new (pipe, args);
     if (!self)
@@ -143,10 +197,13 @@ zm_collectd_pull_actor_actor (zsock_t *pipe, void *args)
     zsock_signal (self->pipe, 0);
 
     while (!self->terminated) {
-        zsock_t *which = (zsock_t *) zpoller_wait (self->poller, 0);
+        zsock_t *which = (zsock_t *) zpoller_wait (self->poller, 1000);
         if (which == self->pipe)
             zm_collectd_pull_actor_recv_api (self);
        //  Add other sockets when you need them.
+        else
+        if (zpoller_expired (self->poller))
+            zm_collectd_pull (self);
     }
     zm_collectd_pull_actor_destroy (&self);
 }
@@ -154,30 +211,16 @@ zm_collectd_pull_actor_actor (zsock_t *pipe, void *args)
 //  --------------------------------------------------------------------------
 //  Self test of this actor.
 
-// If your selftest reads SCMed fixture data, please keep it in
-// src/selftest-ro; if your test creates filesystem objects, please
-// do so under src/selftest-rw.
-// The following pattern is suggested for C selftest code:
-//    char *filename = NULL;
-//    filename = zsys_sprintf ("%s/%s", SELFTEST_DIR_RO, "mytemplate.file");
-//    assert (filename);
-//    ... use the "filename" for I/O ...
-//    zstr_free (&filename);
-// This way the same "filename" variable can be reused for many subtests.
-#define SELFTEST_DIR_RO "src/selftest-ro"
-#define SELFTEST_DIR_RW "src/selftest-rw"
-
 void
 zm_collectd_pull_actor_test (bool verbose)
 {
     printf (" * zm_collectd_pull_actor: ");
     //  @selftest
     //  Simple create/destroy test
-    zactor_t *zm_collectd_pull_actor = zactor_new (zm_collectd_pull_actor_actor, NULL);
-    assert (zm_collectd_pull_actor);
+    zactor_t *self = zactor_new (zm_collectd_pull_actor, NULL);
+    assert (self);
 
-    zactor_destroy (&zm_collectd_pull_actor);
-    //  @end
+    zactor_destroy (&self);
 
     printf ("OK\n");
 }

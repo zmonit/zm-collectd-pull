@@ -42,7 +42,7 @@ extern "C" {
 //
 //  This is the zm_collectd_pull_actor constructor as a zactor_fn;
 ZM_COLLECTD_PULL_EXPORT void
-    zm_collectd_pull_actor_actor (zsock_t *pipe, void *args);
+    zm_collectd_pull_actor (zsock_t *pipe, void *args);
 
 //  Self test of this actor
 ZM_COLLECTD_PULL_EXPORT void

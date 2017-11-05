@@ -43,6 +43,7 @@ BuildRequires:  xmlto
 BuildRequires:  zeromq-devel
 BuildRequires:  czmq-devel
 BuildRequires:  malamute-devel
+BuildRequires:  zm-proto-devel
 BuildRequires:  libcollectdclient-devel
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 

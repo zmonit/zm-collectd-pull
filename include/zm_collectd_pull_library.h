@@ -23,6 +23,7 @@
 //  External dependencies
 #include <czmq.h>
 #include <malamute.h>
+#include <zmproto.h>
 #include <collectd/client.h>
 
 //  ZM_COLLECTD_PULL version macros for compile-time API detection

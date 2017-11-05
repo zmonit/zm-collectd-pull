@@ -16,10 +16,11 @@ AM_CPPFLAGS = \
     ${libzmq_CFLAGS} \
     ${czmq_CFLAGS} \
     ${malamute_CFLAGS} \
+    ${zm_proto_CFLAGS} \
     ${libcollectdclient_CFLAGS} \
     -I$(srcdir)/include
 
-project_libs = ${libzmq_LIBS} ${czmq_LIBS} ${malamute_LIBS} ${libcollectdclient_LIBS}
+project_libs = ${libzmq_LIBS} ${czmq_LIBS} ${malamute_LIBS} ${zm_proto_LIBS} ${libcollectdclient_LIBS}
 
 SUBDIRS = doc
 DIST_SUBDIRS = doc
@@ -40,6 +41,7 @@ EXTRA_DIST += \
     Findlibzmq.cmake \
     Findczmq.cmake \
     Findmalamute.cmake \
+    Findzm_proto.cmake \
     Findlibcollectdclient.cmake \
     CMakeLists.txt
 endif

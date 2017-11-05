@@ -44,42 +44,29 @@ int main (int argc, char *argv [])
     if (verbose)
         zsys_info ("zm_collectd_pull - Main daemon");
 
-    zsys_init ();
-    // FIXME: code is here to really quickly iterate with collectd client, it
-    // will be transformed to actor later on
-    lcc_connection_t *conn;
-    int r = lcc_connect ("/var/run/collectd-unixsock", &conn);
-    assert (r == 0);
+    //TODO: configuration for malamute
+    zactor_t *malamute = zactor_new (mlm_server, "malamute");
+    if (verbose)
+        zstr_sendx (malamute, "VERBOSE", NULL);
 
-    lcc_identifier_t *ret_ident;
-    size_t ret_ident_num;
+    zstr_sendx (malamute, "BIND", "inproc://malamute", NULL);
 
-    r = lcc_listval (conn, &ret_ident, &ret_ident_num);
-    assert (r == 0);
+    zactor_t *server = zactor_new (zm_collectd_pull_actor, "cli");
+    if (verbose)
+        zstr_sendx (server, "VERBOSE", NULL);
 
-    for (size_t i = 0; i < ret_ident_num; i++) {
-        char id[1024];
-        r = lcc_identifier_to_string (conn, id, sizeof (id), ret_ident + i);
-        assert (r == 0);
-    
-        zsys_info ("i=%zu, id=%s", i, id);
+    zstr_sendx (server, "START", NULL);
 
-    /*
-      lcc_identifier_t ident;
-      r = lcc_string_to_identifier(conn, &ident, id);
-      assert (r ==0);
-    */
-
-      size_t ret_values_num = 0;
-      gauge_t *ret_values = NULL;
-      char **ret_values_names = NULL;
-      r = lcc_getval (conn, ret_ident + i, &ret_values_num, &ret_values, &ret_values_names);
-      assert (r == 0);
-      for (size_t j = 0; j < ret_values_num; j++)
-        zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+    while (true)
+    {
+        char *msg = zstr_recv (server);
+        if (!msg)
+            break;
+        zsys_debug ("%s", msg);
+        zstr_free (&msg);
     }
 
-    LCC_DESTROY (conn);
-
+    zactor_destroy (&server);
+    zactor_destroy (&malamute);
     return 0;
 }

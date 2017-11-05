@@ -12,7 +12,7 @@ Name: libzm_collectd_pull
 Description: Pull data from collectd and push to zmonit
 Version: @VERSION@
 
-Requires:@pkgconfig_name_libzmq@ @pkgconfig_name_libczmq@ @pkgconfig_name_libmlm@ @pkgconfig_name_libcollectdclient@
+Requires:@pkgconfig_name_libzmq@ @pkgconfig_name_libczmq@ @pkgconfig_name_libmlm@ @pkgconfig_name_libzm_proto@ @pkgconfig_name_libcollectdclient@
 
 Libs: -L${libdir} -lzm_collectd_pull
 Cflags: -I${includedir} @pkg_config_defines@
