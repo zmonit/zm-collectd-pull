@@ -144,6 +144,28 @@ zm_collectd_pull_actor_recv_api (zm_collectd_pull_actor_t *self)
     if (streq (command, "$TERM"))
         //  The $TERM command is send by zactor_destroy() method
         self->terminated = true;
+    else
+    if (streq (command, "ENDPOINT")) {
+        char *endpoint = zmsg_popstr (request);
+        if (!endpoint)
+            zsys_error ("zm_collectd_pull (%s): ENDPOINT expects one parameter");
+        else {
+            zstr_free (&self->endpoint);
+            self->endpoint = strdup (endpoint);
+        }
+        zstr_free (&endpoint);
+    }
+    else
+    if (streq (command, "COLLECTD-SOCKET")) {
+        char *collectd_socket = zmsg_popstr (request);
+        if (!collectd_socket)
+            zsys_error ("zm_collectd_pull (%s): COLLECTD-SOCKET expects one parameter");
+        else {
+            zstr_free (&self->collectd_socket);
+            self->collectd_socket = strdup (collectd_socket);
+        }
+        zstr_free (&collectd_socket);
+    }
     else {
         zsys_error ("invalid command '%s'", command);
         assert (false);
@@ -280,14 +302,16 @@ zm_collectd_pull_actor_test (bool verbose)
     if (verbose)
         zstr_sendx (malamute, "VERBOSE", NULL);
 
-    zstr_sendx (malamute, "BIND", "inproc://malamute", NULL);
-
+    zstr_sendx (malamute, "BIND", "inproc://malamute-unit-test", NULL);
 
     zactor_t *self = zactor_new (zm_collectd_pull_actor, NULL);
     assert (self);
 
     if (verbose)
         zstr_sendx (self, "VERBOSE", NULL);
+
+    zstr_sendx (self, "ENDPOINT", "inproc://malamute-unit-test", NULL);
+    zstr_sendx (self, "COLLECTD-SOCKET", "/var/run/collectd-unixsock");
 
     if (collectd_sock_writeable) {
         zstr_sendx (self, "START", NULL);

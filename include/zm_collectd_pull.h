@@ -40,6 +40,14 @@ extern "C" {
 //
 //      zstr_sendx (zm_collectd_pull, "STOP", NULL);
 //
+//  Malamute endpoint
+//
+//      zstr_sendx (zm_collectd_pull, "ENDPOINT", "inproc://malamute", NULL);
+//
+//  Collectd unix socket
+//
+//      zstr_sendx (zm_collectd_pull, "COLLECTD-SOCKET", "/var/run/collects-unixsock", NULL);
+//
 //  This is the zm_collectd_pull constructor as a zactor_fn;
 ZM_COLLECTD_PULL_EXPORT void
     zm_collectd_pull_actor (zsock_t *pipe, void *args);
