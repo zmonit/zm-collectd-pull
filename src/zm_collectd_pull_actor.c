@@ -277,6 +277,7 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
                         j,
                         ret_values_names[j],
                         ret_values[j]);
+            // TODO: drop excessive allocations
             char *value = zsys_sprintf ("%e", ret_values [j]);
             zm_proto_set_value (self->msg, value);
             zstr_free (&value);
@@ -285,7 +286,10 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
 
         zm_proto_set_unit (self->msg, "");
 
-        zm_proto_send_mlm (self->msg, self->client, "subject");
+        // TODO: drop excessive allocations
+        char *subject = zsys_sprintf ("%s@%s", type, device);
+        zm_proto_send_mlm (self->msg, self->client, subject);
+        zstr_free (&subject);
 
         RET_VALUES_DESTROY;
     }
