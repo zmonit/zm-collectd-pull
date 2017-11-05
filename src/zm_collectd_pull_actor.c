@@ -189,7 +189,7 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         r = lcc_identifier_to_string (self->conn, id, sizeof (id), ret_ident + i);
         assert (r == 0);
 
-        if (seldf->verbose)
+        if (self->verbose)
             zsys_info ("i=%zu, id=%s", i, id);
 
 
@@ -269,10 +269,35 @@ zm_collectd_pull_actor_test (bool verbose)
     printf (" * zm_collectd_pull_actor: ");
     //  @selftest
     //  Simple create/destroy test
+
+    zfile_t *collectd_sock = zfile_new ("/var/run", "collectd-unixsock");
+    assert (collectd_sock);
+    bool collectd_sock_writeable = zfile_is_writeable (collectd_sock);
+    zfile_close (collectd_sock);
+    zfile_destroy (&collectd_sock);
+
+    zactor_t *malamute = zactor_new (mlm_server, "malamute");
+    if (verbose)
+        zstr_sendx (malamute, "VERBOSE", NULL);
+
+    zstr_sendx (malamute, "BIND", "inproc://malamute", NULL);
+
+
     zactor_t *self = zactor_new (zm_collectd_pull_actor, NULL);
     assert (self);
 
+    if (verbose)
+        zstr_sendx (self, "VERBOSE", NULL);
+
+    if (collectd_sock_writeable) {
+        zstr_sendx (self, "START", NULL);
+        zclock_sleep (3000);
+    }
+    else
+        printf ("SKIPPED, collectd unix socket not accessible: ");
+
     zactor_destroy (&self);
+    zactor_destroy (&malamute);
 
     printf ("OK\n");
 }
