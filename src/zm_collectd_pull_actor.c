@@ -161,6 +161,26 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
     size_t ret_ident_num;
     int r;
 
+    // adapted from src/collectdctl.c
+#define RET_IDENT_DESTROY                                                      \
+  do {                                                                         \
+    if (ret_ident != NULL)                                                     \
+      free(ret_ident);                                                         \
+    ret_ident_num = 0;                                                         \
+  } while (0)
+
+#define RET_VALUES_DESTROY                                                            \
+  do {                                                                         \
+    if (ret_values != NULL)                                                    \
+      free(ret_values);                                                        \
+    if (ret_values_names != NULL) {                                            \
+      for (size_t i = 0; i < ret_values_num; ++i)                              \
+        free(ret_values_names[i]);                                             \
+      free(ret_values_names);                                                  \
+    }                                                                          \
+    ret_values_num = 0;                                                        \
+  } while (0)
+
     r = lcc_listval (self->conn, &ret_ident, &ret_ident_num);
     assert (r == 0);
 
@@ -180,7 +200,11 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
 
         for (size_t j = 0; j < ret_values_num; j++)
             zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+
+        RET_VALUES_DESTROY;
     }
+
+    RET_IDENT_DESTROY;
 }
 
 //  --------------------------------------------------------------------------
