@@ -96,12 +96,28 @@ zm_collectd_pull_actor_start (zm_collectd_pull_actor_t *self)
 
     //  TODO: Add startup actions
     int r = lcc_connect (self->collectd_socket, &self->conn);
-    assert (r == 0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to connect to collectd: %s",
+                self->name,
+                lcc_strerror (self->conn));
+        self->terminated = true;
+        return -1;
+    }
 
     r = mlm_client_connect (self->client, self->endpoint, 5000, self->name);
-    assert (r == 0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to connect to malamute",
+                self->name);
+        self->terminated = true;
+        return -1;
+    }
     r = mlm_client_set_producer (self->client, ZM_PROTO_METRIC_STREAM);
-    assert (r ==0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to set client as a producer",
+                self->name);
+        self->terminated = true;
+        return -1;
+    }
 
     return 0;
 }
@@ -144,6 +160,28 @@ zm_collectd_pull_actor_recv_api (zm_collectd_pull_actor_t *self)
     if (streq (command, "$TERM"))
         //  The $TERM command is send by zactor_destroy() method
         self->terminated = true;
+    else
+    if (streq (command, "ENDPOINT")) {
+        char *endpoint = zmsg_popstr (request);
+        if (!endpoint)
+            zsys_error ("zm_collectd_pull (%s): ENDPOINT expects one parameter");
+        else {
+            zstr_free (&self->endpoint);
+            self->endpoint = strdup (endpoint);
+        }
+        zstr_free (&endpoint);
+    }
+    else
+    if (streq (command, "COLLECTD-SOCKET")) {
+        char *collectd_socket = zmsg_popstr (request);
+        if (!collectd_socket)
+            zsys_error ("zm_collectd_pull (%s): COLLECTD-SOCKET expects one parameter");
+        else {
+            zstr_free (&self->collectd_socket);
+            self->collectd_socket = strdup (collectd_socket);
+        }
+        zstr_free (&collectd_socket);
+    }
     else {
         zsys_error ("invalid command '%s'", command);
         assert (false);
@@ -182,22 +220,41 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
   } while (0)
 
     r = lcc_listval (self->conn, &ret_ident, &ret_ident_num);
-    assert (r == 0);
+    if (r != 0) {
+        zsys_error ("zm_collectd_pull (%s): Failed to list values from collectd: %s",
+                self->name,
+                lcc_strerror (self->conn));
+        return;
+    }
 
     for (size_t i = 0; i < ret_ident_num; i++) {
         char id[1024];
         r = lcc_identifier_to_string (self->conn, id, sizeof (id), ret_ident + i);
-        assert (r == 0);
+        if (r != 0) {
+            zsys_error ("zm_collectd_pull (%s): Failed to convert collectd identifier to string: %s",
+                    self->name,
+                    lcc_strerror (self->conn));
+            RET_IDENT_DESTROY;
+            return;
+        }
 
-        if (seldf->verbose)
-            zsys_info ("i=%zu, id=%s", i, id);
+        if (self->verbose)
+            zsys_info ("zm_collectd_pull (%s): i=%zu, id=%s", self->name, i, id);
 
 
         size_t ret_values_num = 0;
         gauge_t *ret_values = NULL;
         char **ret_values_names = NULL;
         r = lcc_getval (self->conn, ret_ident + i, &ret_values_num, &ret_values, &ret_values_names);
-        assert (r == 0);
+        if (r != 0) {
+            zsys_error ("zm_collectd_pull (%s): Failed to get valued for %s: %s",
+                    self->name,
+                    id,
+                    lcc_strerror (self->conn));
+            RET_IDENT_DESTROY;
+            RET_VALUES_DESTROY;
+            return;
+        }
 
         char *sep = strchr (id, '/');
         char *device = "";
@@ -215,7 +272,12 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
         zm_proto_set_type (self->msg, type);
         for (size_t j = 0; j < ret_values_num; j++) {
             if (self->verbose)
-                zsys_info ("\tj=%zu, %s=%e\n", j, ret_values_names[j], ret_values[j]);
+                zsys_info ("zm_collectd_pull (%s): \tj=%zu, %s=%e\n",
+                        self->name,
+                        j,
+                        ret_values_names[j],
+                        ret_values[j]);
+            // TODO: drop excessive allocations
             char *value = zsys_sprintf ("%e", ret_values [j]);
             zm_proto_set_value (self->msg, value);
             zstr_free (&value);
@@ -224,10 +286,10 @@ zm_collectd_pull (zm_collectd_pull_actor_t *self)
 
         zm_proto_set_unit (self->msg, "");
 
-        zm_proto_send_mlm (self->msg, self->client, "subject");
-
-        if (self->verbose)
-            zm_proto_print (self->msg);
+        // TODO: drop excessive allocations
+        char *subject = zsys_sprintf ("%s@%s", type, device);
+        zm_proto_send_mlm (self->msg, self->client, subject);
+        zstr_free (&subject);
 
         RET_VALUES_DESTROY;
     }
@@ -244,6 +306,12 @@ zm_collectd_pull_actor (zsock_t *pipe, void *args)
     zm_collectd_pull_actor_t * self = zm_collectd_pull_actor_new (pipe, args);
     if (!self)
         return;          //  Interrupted
+
+    if (args) {
+        char *foo = (char*) args;
+        zstr_free (&self->name);
+        self->name = strdup (foo);
+    }
 
     //  Signal actor successfully initiated
     zsock_signal (self->pipe, 0);
@@ -269,10 +337,37 @@ zm_collectd_pull_actor_test (bool verbose)
     printf (" * zm_collectd_pull_actor: ");
     //  @selftest
     //  Simple create/destroy test
-    zactor_t *self = zactor_new (zm_collectd_pull_actor, NULL);
+
+    zfile_t *collectd_sock = zfile_new ("/var/run", "collectd-unixsock");
+    assert (collectd_sock);
+    bool collectd_sock_writeable = zfile_is_writeable (collectd_sock);
+    zfile_close (collectd_sock);
+    zfile_destroy (&collectd_sock);
+
+    zactor_t *malamute = zactor_new (mlm_server, "malamute");
+    if (verbose)
+        zstr_sendx (malamute, "VERBOSE", NULL);
+
+    zstr_sendx (malamute, "BIND", "inproc://malamute-unit-test", NULL);
+
+    zactor_t *self = zactor_new (zm_collectd_pull_actor, "collectd-unit-test");
     assert (self);
 
+    if (verbose)
+        zstr_sendx (self, "VERBOSE", NULL);
+
+    zstr_sendx (self, "ENDPOINT", "inproc://malamute-unit-test", NULL);
+    zstr_sendx (self, "COLLECTD-SOCKET", "/var/run/collectd-unixsock");
+
+    if (collectd_sock_writeable) {
+        zstr_sendx (self, "START", NULL);
+        zclock_sleep (3000);
+    }
+    else
+        printf ("SKIPPED, collectd unix socket not accessible: ");
+
     zactor_destroy (&self);
+    zactor_destroy (&malamute);
 
     printf ("OK\n");
 }
